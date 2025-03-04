@@ -1,4 +1,4 @@
 # File
 
 ## Todo
-[[todo.md]]
+[[todo.md]](todo.md)
