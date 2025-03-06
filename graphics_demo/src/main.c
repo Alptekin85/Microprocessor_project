@@ -1,8 +1,17 @@
 #include <stm32f031x6.h>
 #include "display.h"
+#include <stdlib.h>
+#include <time.h>
+#include <stdio.h>
 
 #define SCREEN_HEIGHT 128
 #define SCREEN_WIDTH 64
+#define SCORE_DIVISOR 5
+#define xLimitR 110
+#define xLimitL 10
+#define yLimitD 140
+#define yLimitU 16
+
 
 void initClock(void);
 void initSysTick(void);
@@ -14,6 +23,8 @@ void enablePullUp(GPIO_TypeDef *Port, uint32_t BitNumber);
 void pinMode(GPIO_TypeDef *Port, uint32_t BitNumber, uint32_t Mode);
 void mainMenu(void);
 void playerHud(int);
+void ballSpawner(int *spawnTimer);
+int ballCollision(int x, int y, int x1, int y1, int currentScore);
 
 volatile uint32_t milliseconds;
 
@@ -91,18 +102,30 @@ const uint16_t maze[] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1  // Bottom wall
 };
 
+
+//global variables
+int ballExist = 0;
+int randX;
+int randY;
+
+
 int main()
 {
 	// Draw initial scene
     fillRectangle(0,0,128,160,0); // Clear screen
     
-    
+	
+
+	int spawnTimer = 0;
 	int currentScore = 0;
 	int hinverted = 0;
 	int vinverted = 0;
 	int toggle = 0;
 	int hmoved = 0;
 	int vmoved = 0;
+	extern int randX; 
+	extern int randY; 
+
 	uint16_t x = 50;
 	uint16_t y = 50;
 	uint16_t oldx = x;
@@ -110,8 +133,16 @@ int main()
 	initClock();
 	initSysTick();
 	setupIO();
-	putImage(20,80,12,16,dg1,0,0);
+	srand(time(NULL));
+	//putImage(randX,randY,12,16,dg1,0,0);
 	putImage(50,20,12,16,bomb,0,0);
+	fillCircle(30, 40, 5, RGBToWord(0,0,255));
+
+
+
+
+		
+	
 
 
 
@@ -129,18 +160,32 @@ int main()
 			}
 		}
 		*/
+		
+		
+		spawnTimer++;
+		
 
+		
 		mainMenu();
 		playerHud(currentScore);
+		ballSpawner(&spawnTimer);
+		
+
+		if (ballCollision(x, y, randX, randY, currentScore) == 1)
+		{
+			currentScore = currentScore + 1;
+
+		}
+		
 
 		hmoved = vmoved = 0;
 		hinverted = vinverted = 0;
 
 		if ((GPIOB->IDR & (1 << 4))==0) // right pressed
 		{					
-			if (x < 110)
+			if (x < xLimitR)
 			{
-				x = x + 2;
+				x = x + 1 + (currentScore / SCORE_DIVISOR);
 				hmoved = 2;
 				hinverted=0;
 			}						
@@ -149,9 +194,9 @@ int main()
 		if ((GPIOB->IDR & (1 << 5))==0) // left pressed
 		{			
 			
-			if (x > 10)
+			if (x > xLimitL)
 			{
-				x = x - 2;
+				x = x - 1 - (currentScore / SCORE_DIVISOR);
 				hmoved = 2;
 				hinverted=2;
 			}			
@@ -159,9 +204,9 @@ int main()
 
 		if ( (GPIOA->IDR & (1 << 11)) == 0) // down pressed
 		{
-			if (y < 140)
+			if (y < yLimitD)
 			{
-				y = y + 2;			
+				y = y + 1 + (currentScore / SCORE_DIVISOR);			
 				vmoved = 2;
 				vinverted = 0;
 			}
@@ -169,9 +214,9 @@ int main()
 
 		if ( (GPIOA->IDR & (1 << 8)) == 0) // up pressed
 		{			
-			if (y > 16)
+			if (y > yLimitU)
 			{
-				y = y - 2;
+				y = y - 1 - (currentScore / SCORE_DIVISOR);
 				vmoved = 2;
 				vinverted = 2;
 			}
@@ -207,8 +252,8 @@ int main()
 			// Now check for an overlap by checking to see if ANY of the 4 corners of deco are within the target area
 			if (isInside(20,80,12,16,x,y) || isInside(20,80,12,16,x+12,y) || isInside(20,80,12,16,x,y+16) || isInside(20,80,12,16,x+12,y+16) )
 			{
-				printTextX2("GLUG!", 10, 20, RGBToWord(0xff,0xff,0), 0);
-				currentScore++;
+				//printTextX2("GLUG!", 10, 20, RGBToWord(0xff,0xff,0), 0);
+				//currentScore++;
 
 			}
 
@@ -220,11 +265,76 @@ int main()
 }
 
 
-void mainMenu(void)
+
+//draws the ball when spawnTimer is satisfied
+void ballSpawner(int *spawnTimer)
 {
+
+	extern int randX; 
+	extern int randY; 
+	extern int ballExist;
+
+	if ((*spawnTimer >= 50) && (ballExist == 0) )
+	{	
+		//randomise spawn coordinates
+		randX = (rand() % xLimitR - 12 + 1) + xLimitL;
+		randY = (rand() % yLimitD - 16 + 1) + yLimitU + 12;
+
+		//draw the ball
+		putImage(randX,randY,12,16,dg1,0,0);
+		
+		//reset spawn timer, set ball's existence to true
+		*spawnTimer = 0;
+		ballExist = 1;
+
+		//a small delay so the score isn't incremented more than once.
+		delay(50);
+
+	}
+
+
+	
+}
+
+
+
+//checks if player has made contact with a ball, increment the score if collision occured
+int ballCollision(int x, int y, int x1, int y1, int currentScore)
+{
+	
+	//global variable imported to check if the ball is existent.
+	extern int ballExist;
+
+
+	//check if a collison occured
+	if ((isInside(x1,y1,12,16,x,y) || isInside(x1,y1,12,16,x+12,y) || isInside(x1,y1,12,16,x,y+16) || isInside(x1,y1,12,16,x+12,y+16)) && ballExist == 1)
+	{	
+
+		//collision occured, set existence to false
+		ballExist = 0;
+
+		//delete the image of the ball
+		fillRectangle(x1, y1, 12, 16, RGBToWord(0,0,0));
+		
+		//return true so player score is incremented.
+		return 1;
+
+	}
+
+	//no collision occured
+	return 0;
+}
+
+
+//halt function. forces the game into a while loop so long as the player is in: main menu, paused, dead, passed the stage.
+void mainMenu(void)
+{	
+
+	//check if pause button is pressed
 	if ((GPIOB->IDR & (1 << 1)) == 0 ) 
 	{					
 		
+		//delay so the button does not exit while instantly
 		printTextX2("Paused", 30, 30, RGBToWord(0,0,255), 0);
 		delay(500);
 
@@ -233,6 +343,7 @@ void mainMenu(void)
 			
 			if ((GPIOB->IDR & (1 << 1))==0) // right pressed
 			{	
+				//delay so the button does not force into while instantly
 				printTextX2("Paused", 30, 30, RGBToWord(0,0,0), 0);
 				delay(500);				
 				break;
@@ -243,9 +354,14 @@ void mainMenu(void)
 
 }
 
+
+//players hud, shows score and remaining lives
 void playerHud(int userScore)
-{
+{	
+	//draw the frame of the hud
 	drawRectangle(0, 0, 127, 12, RGBToWord(0,255,0));
+	
+	//players score
 	printText("Score:",3, 3, RGBToWord(0,255,0), RGBToWord(0,0,0));
 	printNumber(userScore, 44, 3, RGBToWord(0,255,0), RGBToWord(0,0,0));
 }
@@ -337,22 +453,26 @@ void pinMode(GPIO_TypeDef *Port, uint32_t BitNumber, uint32_t Mode)
 
 
 
-
+//isInside function checks if given positions are overlapping (colliding) if so return 1 otherwise 0.
 int isInside(uint16_t x1, uint16_t y1, uint16_t w, uint16_t h, uint16_t px, uint16_t py)
 {
 	// checks to see if point px,py is within the rectange defined by x,y,w,h
+	// where (x1,y1) are top-right of the sprite/image and (x2,y2) is the bottom-left
 	uint16_t x2,y2;
 	x2 = x1+w;
 	y2 = y1+h;
 	int rvalue = 0;
-	if ( (px >= x1) && (px <= x2))
+	if ( (px >= x1) && (px <= x2)) //check collision on x axis
 	{
 		// ok, x constraint met
-		if ( (py >= y1) && (py <= y2))
+		if ( (py >= y1) && (py <= y2))//check collison on y axis
+			//collison confirmed, return 1
 			rvalue = 1;
 	}
 	return rvalue;
 }
+
+
 
 
 
