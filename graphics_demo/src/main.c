@@ -205,6 +205,8 @@ int main()
 		}
 		*/
 		
+
+		/*
 		printDecimal(count++);
 		eputs("\r\n");
 
@@ -220,7 +222,7 @@ int main()
 			}
 			
 		}
-		
+		*/
 
 		eputs("\r\n");
 		
