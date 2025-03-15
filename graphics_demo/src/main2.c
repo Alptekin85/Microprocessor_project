@@ -3,14 +3,16 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdio.h>
+#include "serial.h"
+#include "nvm.h"
 
 #define SCREEN_HEIGHT 128
 #define SCREEN_WIDTH 64
 #define SCORE_DIVISOR 5
-#define xLimitR 110
-#define xLimitL 10
-#define yLimitD 140
-#define yLimitU 16
+#define XLIMITR 110
+#define XLIMITL 10
+#define YLIMITD 140
+#define YLIMITU 16
 #define PLAYER_BASE_SPEED 3
 #define SPEED_PENALTY 2
 
@@ -21,6 +23,7 @@ struct player_Data
     int position[2]; //player positions (x,y) where position[0] = x and position[1] = y
     int sprite_ID; //player's sprite id
     int sprite_Inversion[2]; //player inversion status (x,y) where sprite_Inversion[0] = xinversion and sprite_Inversion[1] = yinversion 
+	int moved[2]; // players movement checks, where moved [0] = xmoved and moved[1] = ymoved (replaces initial xmoved and ymoved to move player movement to another function)
 };
 
 struct ghost_data
@@ -50,10 +53,12 @@ void pauseMenu(struct player_Data *player1, struct ball_Data ball1, int *playerL
 void mainMenu(struct player_Data *player1, struct ball_Data ball1, int *playerLives, int *ballExist, int *currentScore);
 void playerHud(int userScore, int playerLives);
 void ballSpawner(int *randX, int *randY, int *spawnTimer, int *ballExist, struct ball_Data *ball1);
-int ballCollision(int x, int y, int x1, int y1, int currentScore, int *ballExist);
+int ballCollision(struct player_Data player1, int x1, int y1, int currentScore, int *ballExist);
 void reDraw(struct player_Data *player1, struct ball_Data ball1, int *wait_Input);
 void restartGame(int *playerLives, int *ballExist, int *currentScore, int *wait_Input, struct player_Data *player1);
 void ghostChase(struct player_Data player1, struct ghost_data *ghost1, int currentScore, int *playerLives);
+void playerMovement(struct player_Data *player1, uint16_t *oldx, uint16_t *oldy,int *toggle, int currentScore);
+void deathScreen(struct player_Data *player1, struct ball_Data ball1, int *playerLives, int *ballExist, int *currentScore);
 
 volatile uint32_t milliseconds;
 
@@ -132,7 +137,7 @@ const uint16_t maze[] = {
 };
 
 
-
+uint32_t high_scores[8];
 
 
 
@@ -146,7 +151,8 @@ int main()
 	struct ghost_data ghost1;
 	struct ball_Data ball1;
 
-	
+	char ch;
+	int32_t count = 0;
 	int playerLives = 3;
 	int playerSpriteID = 0;
 	int ballExist = 0;
@@ -155,24 +161,42 @@ int main()
 	int hinverted = 0;
 	int vinverted = 0;
 	int toggle = 0;
-	int hmoved = 0;
-	int vmoved = 0;
+	//int hmoved = 0;
+	//int vmoved = 0;
 	int randX; 
 	int randY; 
-	int i;
+	//int i;
 
-	uint16_t x = 50;
-	uint16_t y = 50;
-	uint16_t oldx = x;
-	uint16_t oldy = y;
-	player1.position[0] = x;
-	player1.position[1] = y;
+	//uint16_t x = 50;
+	//uint16_t y = 50;
+
+	player1.position[0] = 50;
+	player1.position[1] = 50;
+	uint16_t oldx = player1.position[0];
+	uint16_t oldy = player1.position[1];
+	player1.sprite_Inversion[0] = 0;
+	player1.sprite_Inversion[1] = 0;
+	player1.moved[0] = 0;
+	player1.moved[1] = 0;
 	ghost1.position[0] = 20;
 	ghost1.position[1] = 20;                                                                                                                                                                                                 
 	initClock();
 	initSysTick();
 	setupIO();
 	srand(time(NULL));
+	initSerial();
+
+
+	readSector(0x7f00,high_scores,8*sizeof(uint32_t));
+	for (int index=0;index < 8; index++)
+	{
+		printDecimal(high_scores[index]);
+		eputs("\r\n");
+	}
+	high_scores[0]=123456;
+	high_scores[1]=234567;
+	writeSector(0x7f00,high_scores,8*sizeof(uint32_t));
+
 	
 
 	putImage(50,20,12,16,bomb,0,0);
@@ -180,7 +204,7 @@ int main()
 	putImage(50,50,12,16,pacmanLR,0,0);
 	mainMenu(& player1, ball1, &playerLives, &ballExist, &currentScore);
 
-
+	eputs("starting");
 
 		
 	
@@ -203,9 +227,27 @@ int main()
 		*/
 		
 
+		/*
+		printDecimal(count++);
+		eputs("\r\n");
 
+
+		for (i = 0; i < 3; i++)
+		{
+			ch = egetchar();
+			eputchar(ch);
+
+			if (ch == 'a')
+			{
+				eputs("testing");
+			}
+			
+		}
+		*/
+
+		eputs("\r\n");
 		
-		
+
 		spawnTimer++;
 		
 
@@ -215,19 +257,28 @@ int main()
 		ballSpawner(&randX , &randY, &spawnTimer, &ballExist, & ball1);
 		
 
-		if (ballCollision(x, y, randX, randY, currentScore, &ballExist) == 1)
+		if (ballCollision(player1, randX, randY, currentScore, &ballExist) == 1)
 		{
 			currentScore = currentScore + 1;
 
 		}
 		
+		playerMovement(& player1, &oldx, &oldy, &toggle, currentScore);
 
+
+		if (playerLives == 0)
+		{
+			deathScreen(& player1, ball1, &playerLives, &ballExist, &currentScore);
+		}
+		
+
+		/*
 		hmoved = vmoved = 0;
 		//hinverted = vinverted = 0;
 
 		if ((GPIOB->IDR & (1 << 4))==0) // right pressed
 		{					
-			if (x < xLimitR)
+			if (x < XLIMITR)
 			{
 				x = x + PLAYER_BASE_SPEED + (currentScore / SCORE_DIVISOR);
 				hmoved = 2;
@@ -238,7 +289,7 @@ int main()
 		if ((GPIOB->IDR & (1 << 5))==0) // left pressed
 		{			
 			
-			if (x > xLimitL)
+			if (x > XLIMITL)
 			{
 				x = x - PLAYER_BASE_SPEED - (currentScore / SCORE_DIVISOR);
 				hmoved = 2;
@@ -248,7 +299,7 @@ int main()
 
 		if ( (GPIOA->IDR & (1 << 11)) == 0) // down pressed
 		{
-			if (y < yLimitD)
+			if (y < YLIMITD)
 			{
 				y = y + PLAYER_BASE_SPEED + (currentScore / SCORE_DIVISOR);			
 				vmoved = 2;
@@ -258,7 +309,7 @@ int main()
 
 		if ( (GPIOA->IDR & (1 << 8)) == 0) // up pressed
 		{			
-			if (y > yLimitU)
+			if (y > YLIMITU)
 			{
 				y = y - PLAYER_BASE_SPEED - (currentScore / SCORE_DIVISOR);
 				vmoved = 2;
@@ -299,7 +350,7 @@ int main()
 				playerSpriteID = 2;
 			}
 
-
+			
 
 			// Now check for an overlap by checking to see if ANY of the 4 corners of deco are within the target area
 			if (isInside(50,20,12,16,x,y) || isInside(50,20,12,16,x+12,y) || isInside(50,20,12,16,x,y+16) || isInside(50,20,12,16,x+12,y+16) )
@@ -321,14 +372,14 @@ int main()
 
 				delay(500);
 			}
-
+			
 
 		}		
-
+		*/
 
 		//set player1's structure values
-		player1.position[0] = x;
-		player1.position[1] = y;
+		//player1.position[0] = x;
+		//player1.position[1] = y;
 		player1.sprite_ID = playerSpriteID;
 		player1.sprite_Inversion[0] = hinverted;
 		player1.sprite_Inversion[1] = vinverted;
@@ -346,6 +397,88 @@ int main()
 }
 
 
+void playerMovement(struct player_Data *player1, uint16_t *oldx, uint16_t *oldy,int *toggle, int currentScore)
+{
+
+	player1 -> moved[0] = 0;
+	player1 -> moved[1] = 0;
+
+	if ((GPIOB->IDR & (1 << 4))==0) // right pressed
+	{					
+		if (player1 -> position[0] < XLIMITR)
+		{
+			player1 -> position[0] = player1 -> position[0] + PLAYER_BASE_SPEED + (currentScore / SCORE_DIVISOR);
+			player1 -> moved[0] = 2;
+			player1 -> sprite_Inversion[0] = 0;
+		}						
+	}
+
+	if ((GPIOB->IDR & (1 << 5))==0) // left pressed
+	{			
+		
+		if (player1 -> position[0] > XLIMITL)
+		{
+			player1 -> position[0] = player1 -> position[0] - PLAYER_BASE_SPEED - (currentScore / SCORE_DIVISOR);
+			player1 -> moved[0] = 2;
+			player1 -> sprite_Inversion[0] = 2;
+		}			
+	}
+
+	if ( (GPIOA->IDR & (1 << 11)) == 0) // down pressed
+	{
+		if (player1 -> position[1] < YLIMITD)
+		{
+			player1 -> position[1] = player1 -> position[1] + PLAYER_BASE_SPEED + (currentScore / SCORE_DIVISOR);			
+			player1 -> moved[1] = 2;
+			player1 -> sprite_Inversion[1] = 0;
+		}
+	}
+
+	if ( (GPIOA->IDR & (1 << 8)) == 0) // up pressed
+	{			
+		if (player1 -> position[1] > YLIMITU)
+		{
+			player1 -> position[1] = player1 -> position[1] - PLAYER_BASE_SPEED - (currentScore / SCORE_DIVISOR);
+			player1 -> moved[1] = 2;
+			player1 -> sprite_Inversion[1] = 2;
+		}
+	}
+
+
+
+	if ((player1 -> moved[0]) || (player1 -> moved[1]))
+	{
+		// only redraw if there has been some movement (reduces flicker)
+		fillRectangle(*oldx,*oldy,12,16,0);
+		*oldx = player1 -> position[0];
+		*oldy = player1 -> position[1];	
+		
+		if (player1 -> moved[0])
+		{
+			if (*toggle)
+			{
+			
+				putImage(player1 -> position[0],player1 -> position[1],12,16,pacmanLR,player1->sprite_Inversion[0],0);
+				player1->sprite_ID = 0;
+			}	
+			else
+			{
+
+				putImage(player1 -> position[0],player1 -> position[1],12,16,pacmanLR2,player1->sprite_Inversion[0],0);
+				player1->sprite_ID = 1;
+			}
+			*toggle = *toggle ^ 1;
+		}
+
+		else
+		{
+			
+			putImage(player1 -> position[0],player1 -> position[1],12,16,pacmanUD,0,player1->sprite_Inversion[1]);
+			player1->sprite_ID = 2;
+		}
+	}
+
+}
 
 //draws the ball when spawnTimer is satisfied
 void ballSpawner(int *randX, int *randY,int *spawnTimer, int *ballExist, struct ball_Data *ball1)
@@ -355,8 +488,8 @@ void ballSpawner(int *randX, int *randY,int *spawnTimer, int *ballExist, struct 
 	if ((*spawnTimer >= 50) && (*ballExist == 0) )
 	{	
 		//randomise spawn coordinates
-		*randX = (rand() % xLimitR - 24 + 1) + xLimitL + 18;
-		*randY = (rand() % yLimitD - 32 + 1) + yLimitU + 24;
+		*randX = (rand() % XLIMITR - 24 + 1) + XLIMITL + 18;
+		*randY = (rand() % YLIMITD - 32 + 1) + YLIMITU + 24;
 
 		//set ball1's positions
 		ball1 -> position[0] = *randX;
@@ -381,7 +514,7 @@ void ballSpawner(int *randX, int *randY,int *spawnTimer, int *ballExist, struct 
 
 
 //checks if player has made contact with a ball, increment the score if collision occured
-int ballCollision(int x, int y, int x1, int y1, int currentScore, int *ballExist)
+int ballCollision(struct player_Data player1, int x1, int y1, int currentScore, int *ballExist)
 {
 	
 
@@ -389,7 +522,7 @@ int ballCollision(int x, int y, int x1, int y1, int currentScore, int *ballExist
 
 
 	//check if a collison occured
-	if ((isInside(x1,y1,12,16,x,y) || isInside(x1,y1,12,16,x+12,y) || isInside(x1,y1,12,16,x,y+16) || isInside(x1,y1,12,16,x+12,y+16)) && *ballExist == 1)
+	if ((isInside(x1,y1,12,16,player1.position[0],player1.position[1]) || isInside(x1,y1,12,16,player1.position[0]+12,player1.position[1]) || isInside(x1,y1,12,16,player1.position[0],player1.position[1]+16) || isInside(x1,y1,12,16,player1.position[0]+12,player1.position[1]+16)) && *ballExist == 1)
 	{	
 
 		//collision occured, set existence to false
@@ -405,6 +538,12 @@ int ballCollision(int x, int y, int x1, int y1, int currentScore, int *ballExist
 
 	//no collision occured
 	return 0;
+}
+
+
+int menuIndexer()
+{
+
 }
 
 
@@ -615,6 +754,101 @@ void mainMenu(struct player_Data *player1, struct ball_Data ball1, int *playerLi
 }
 
 
+void deathScreen(struct player_Data *player1, struct ball_Data ball1, int *playerLives, int *ballExist, int *currentScore)
+{
+	int menu_Index = 1;
+	int index_Move = 0;
+	int toggle = 1;
+	int	wait_Input = 1;
+
+					
+		
+	//print main menu
+	fillRectangle(0, 0, 128, 256, RGBToWord(0,0,0));
+	printTextX2("YOU", 30, 10, RGBToWord(0,0,255), 0);
+	printTextX2("DIED!", 30, 30, RGBToWord(0,0,255), 0);
+	printText("restart", 30, 60, RGBToWord(0,0,255), 0);
+	printText("main menu", 30, 80, RGBToWord(0,0,255), 0);
+
+		
+	//delay so the button does not exit while instantly
+	delay(250);
+
+	while (wait_Input == 1)
+	{
+
+		//go to top if no more options remain at the bottom
+		if (menu_Index > 2)
+		{
+			menu_Index = 1;
+		}
+		
+		//go to bottom if no more options remain at the top
+		else if (menu_Index < 1)
+		{
+			menu_Index = 2;
+		}
+		
+
+		//toggle between sprites for menu index
+		if (toggle)
+		{
+		
+			putImage(15, 35 + 20 * menu_Index, 12, 16, pacmanLR , 0, 0);
+		}	
+		else
+		{
+
+			putImage(15, 35 + 20 * menu_Index, 12, 16, pacmanLR2, 0, 0);
+		}
+		toggle = toggle ^ 1;
+
+
+		//menu index controller
+		if ( (GPIOA->IDR & (1 << 11)) == 0) // down pressed
+		{
+			menu_Index++;
+			index_Move = 1;
+			delay(50);
+		}
+
+		if ( (GPIOA->IDR & (1 << 8)) == 0) // up pressed
+		{			
+			menu_Index--;
+			index_Move = 1;
+			delay(50);
+		}
+
+		//only clear indicator if it has moved
+		if (index_Move == 1)
+		{
+			fillRectangle(15, 55, 12, 111, RGBToWord(0,0,0));
+			index_Move = 0;
+		}
+	
+		//restart game selected, set playfield
+		if (menu_Index == 1)
+		{
+			restartGame(&*playerLives, &*ballExist, &*currentScore, &wait_Input, & *player1);
+		}
+
+		//main menu selected, navigate to main menu
+		if ((menu_Index == 2) && ((GPIOB->IDR & (1 << 1))==0))
+		{
+			mainMenu(& *player1, ball1, &*playerLives, &*ballExist, &*currentScore);
+		}
+		
+		
+
+
+
+		delay(100);
+		
+	}
+	
+}
+
+
 void reDraw(struct player_Data *player1, struct ball_Data ball1, int *wait_Input)
 {
 
@@ -669,6 +903,9 @@ void restartGame(int *playerLives, int *ballExist, int *currentScore, int *wait_
 		*ballExist = 0;
 		*currentScore = 0;
 		*wait_Input = 0;
+		player1 -> position[0] = 50;
+		player1 -> position[1] = 50;
+
 		delay(50);
 
 		fillRectangle(0, 0, 128, 256, RGBToWord(0,0,0));
