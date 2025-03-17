@@ -196,7 +196,7 @@ int main()
 
 	//used to debug writing to memory
 
-	/*
+	
 	//read our high score values
 	readSector(0x7f00,high_scores,8*sizeof(uint32_t));
 	eputs("stored scores:");
@@ -206,7 +206,7 @@ int main()
 		printDecimal(high_scores[index]);
 		eputs("\r\n");
 	}
-	*/
+	
 
 	//fill the list with scores
 	
@@ -248,7 +248,7 @@ int main()
 	
 	mainMenu(& player1, ball1, &playerLives, &ballExist, &currentScore);
 	
-	
+	//serial begins
 	eputs("starting");
 
 		
